@@ -18,6 +18,11 @@
 #include "speed_control.h"
 #include "gpio.h"
 
+typedef struct Cir
+{
+  	int x;
+	int y;
+}POS;
 
 uint8 picture[60][160];
 uint8(*picturess)[160];
@@ -81,7 +86,34 @@ int StructCircleFlag = 0;
 int IsSLine = 0;
 /*十字程序*/
 int IsCross = 0;
-
+/*========================================================================
+*  函数名称:  IsPatchHasBlack
+*  功能说明：
+*  创建时间：2017
+*  修改时间：2017
+*  参数说明:
+========================================================================*/
+int IsPatchHasBlack(int pos1_x, int pos1_y, int pos2_x, int pos2_y)
+{
+    float k = 0, b = 0;
+	int sum = 0;
+	
+	k = (float)((float)(pos2_y - pos1_y) / (float)(pos2_x - pos1_x));
+	b = (float)(pos2_y - (float)(k * pos2_x));
+	
+	for(int i = (pos1_x+1); i > pos2_x; i--)
+	{
+		if(picture[i][(int)(k*i+b)] == 255)
+			sum++;
+	}
+	
+	if(fabs(pos1_x-pos2_x) > 10 && sum > 3)
+		return 1;
+	else if(fabs(pos1_x-pos2_x) > 5 && sum > 2)
+		return 1;
+	else 
+		return 0;
+}
 /*========================================================================
 *  函数名称:  RLCount
 *  功能说明：
@@ -98,21 +130,21 @@ int RLCount(int effect, uint8(*picture)[160], int dir )
 	case 1:
 		for (int i = down; i > effect+1; i--)
 		{
-			if(lineinf[i].LeftPos <= lineinf[i-1].LeftPos)
+			if(lineinf[i].LeftPos <= lineinf[i-1].LeftPos && lineinf[i].LeftPos >= lineinf[down].LeftPos)
 				sum++;
 		}
 		break;
 	case 2:
 		for (int i = down; i > effect+1; i--)
 		{
-			if(lineinf[i].RightPos >= lineinf[i-1].RightPos)
+			if(lineinf[i].RightPos >= lineinf[i-1].RightPos && lineinf[i].RightPos <= lineinf[down].RightPos)
 				sum++;
 		}
 		break;
 	default:
 		break;
 	}
-
+	
 	if(sum > down - effect - 3)
 		return 1;
 	else
@@ -992,7 +1024,7 @@ int Cross_S_Find2(int effect, uint8(*picture)[160])
 	}
 	if(topCount > 10)
 		topCount = 100;
-
+	
 	if ( effect < 3 &&topCount == 100 && SCrossCount >= 1 && StructCircle == 0)
 		IsSLine = 2;
 	if (IsSLine == 2 && IsOverLR < 5)
@@ -1051,6 +1083,43 @@ void Cross_S_Line4(int effect, uint8(*picture)[160])
 		lineinf[i].MiddlePos = (lineinf[i].MiddlePos * 3 + Middle * 4) / 7;
 }
 
+void Cross_S_Line5(int effect, uint8(*picture)[160])
+{
+
+	int i;
+	POS Pos0, Pos1;
+	float b = 0,k = 0;
+	
+	Pos0.y = (lineinf[down].MiddlePos + lineinf[SPos[0]].MiddlePos) / 2;
+	for(i = down; i > SPos[0]; i--)
+	{
+		if(fabs(lineinf[i].MiddlePos - Pos0.y) <= 2)
+		{
+			Pos0.x = i;
+			break;
+		}
+	}
+	
+	Pos1.y = (lineinf[SPos[1]].MiddlePos + lineinf[SPos[0]].MiddlePos) / 2;
+	for(i = SPos[0]; i > SPos[1]; i--)
+	{
+		if(fabs(lineinf[i].MiddlePos - Pos1.y) <= 2)
+		{
+			Pos1.x = i;
+			break;
+		}
+	}
+	if(Pos1.x != 0 && Pos0.x != 0)
+	{
+		k = (float)( (float)( Pos1.y - Pos0.y ) / ((float)( Pos1.x - Pos0.x)) );
+		b = (float)( (float)Pos1.y - (float)(k * Pos1.x) );
+		for(i = down; i > effect; i--)
+			lineinf[i].MiddlePos = (int)(k * i + b);
+	}
+
+}
+
+
 
 int RCrossDown = 0;
 int RCrossUp = 0;
@@ -1063,6 +1132,7 @@ float LeftTend = 0;
 int IsCross2 = 0;
 int LeftCrossFePos = 58;   //我想要的左侧标志点
 int RightCrossFePos = 58;  //我想要的右侧标志点
+int tip1 = 0, tip2 = 0;
 int CrossLineNormal3(int effect, uint8(*picture)[160])
 {
 
@@ -1174,7 +1244,7 @@ int CrossLineNormal3(int effect, uint8(*picture)[160])
 	{
 		for (i = LCrossDown - 3; i > effect + 3; i--)
 		{
-			if ((CurveSlope(i, LEFT) > SLOPELEFTDOWN && CurveSlope(i, LEFT) < SLOPELEFTUP) &&
+			if ((CurveSlope(i, LEFT) > SLOPELEFTDOWN && CurveSlope(i, LEFT) < SLOPELEFTUP) && 
 				((lineinf[i].LeftPos >= ReturnBigger(lineinf[LCrossDown].LeftPos - 25, left) && TriFind(effect, picture, 1) == 0) || (lineinf[i].LeftPos >= ReturnBigger(lineinf[LCrossDown].LeftPos - 12, left) && TriFind(effect, picture, 1) == 1)))
 				//&& lineinf[i].LeftPos > left && lineinf[i].LeftPos != left + 1)
 			{
@@ -1192,8 +1262,9 @@ int CrossLineNormal3(int effect, uint8(*picture)[160])
 
 	}
 	/*******************************************************************/
-	if ((LCrossDown != 0 && LCrossUp != 0 && ((lineinf[LCrossDown].LeftPos - lineinf[LCrossUp].LeftPos > 20) || (LCrossDown - LCrossUp > 45)))
+	if (((LCrossDown != 0 && LCrossUp != 0 && ((lineinf[LCrossDown].LeftPos - lineinf[LCrossUp].LeftPos > 20) || (LCrossDown - LCrossUp > 45)))
 		|| ((LCrossDown - LCrossUp)> 30 && LCrossUp < 14 && lineinf[LCrossUp].LeftPos - lineinf[LCrossDown].LeftPos < 18 && ((LCrossDown > 55 && lineinf[LCrossDown].LeftPos < 40) || lineinf[LCrossDown].LeftPos < 30) && (lineinf[LCrossUp].RightPos - lineinf[LCrossUp].LeftPos) > 110))
+		|| (IsPatchHasBlack(LCrossDown, lineinf[LCrossDown].LeftPos, LCrossUp, lineinf[LCrossUp].LeftPos) == 1 && LCrossUp != 0 && LCrossDown != 0))
 		IsDoing = 1;
 	/*******************************************************************/
 	if ((LCrossDown != 0) && (LCrossUp != 0)) //左侧十字计数程序
@@ -1234,7 +1305,7 @@ int CrossLineNormal3(int effect, uint8(*picture)[160])
 	{
 		for (i = RCrossDown - 3; i > effect + 3; i--)
 		{
-			if ((CurveSlope(i, RIGHT) > SLOPERIGHTDOWN && CurveSlope(i, RIGHT) < SLOPERIGHTUP) &&
+			if ((CurveSlope(i, RIGHT) > SLOPERIGHTDOWN && CurveSlope(i, RIGHT) < SLOPERIGHTUP) && 
 				((lineinf[i].RightPos <= ReturnSmaller(lineinf[RCrossDown].RightPos + 25, right) && 0 == TriFind(effect, picture, 2)) || (lineinf[i].RightPos <= ReturnSmaller(lineinf[RCrossDown].RightPos + 12, right) && 1 == TriFind(effect, picture, 2))))
 				//&& lineinf[i].RightPos < right && lineinf[i].RightPos != right - 1)
 			{
@@ -1260,8 +1331,9 @@ int CrossLineNormal3(int effect, uint8(*picture)[160])
 	}
 
 	/*********************************************************************/
-	if ((RCrossDown != 0 && RCrossUp != 0 && ((lineinf[RCrossDown].RightPos - lineinf[RCrossUp].RightPos < -20) || (RCrossDown - RCrossUp > 45)))
+	if (((RCrossDown != 0 && RCrossUp != 0 && ((lineinf[RCrossDown].RightPos - lineinf[RCrossUp].RightPos < -20) || (RCrossDown - RCrossUp > 45)))
 		|| ((RCrossDown - RCrossUp)> 30 && RCrossUp < 14 && (lineinf[RCrossDown].RightPos - lineinf[RCrossUp].RightPos) < 18 && ((RCrossDown > 55 && lineinf[RCrossDown].RightPos > 120) || lineinf[RCrossDown].RightPos > 130) && (lineinf[RCrossUp].RightPos - lineinf[RCrossUp].LeftPos) > 110))
+		|| (IsPatchHasBlack(RCrossDown, lineinf[RCrossDown].RightPos, RCrossUp, lineinf[RCrossUp].RightPos) == 1 && RCrossDown != 0 && RCrossUp != 0))
 		IsDoing2 = 1;
 	/*********************************************************************/
 	/*
@@ -2203,7 +2275,7 @@ void CircleFind(int effect, uint8(*picture)[160])
 #define LCIRCLELIMIT    ( 40)
 #define RCIRCLELIMIT    (120)
 #define RLCIRCLELIMIT   ( 30)
-
+	
 	int i, j, k;
 
 	int MiddleCircle = 0;
@@ -2247,8 +2319,8 @@ void CircleFind(int effect, uint8(*picture)[160])
 	LCirclePos    = 0;
 	RCirclePos    = 0;
 	RLCircleFlag  = 0;
-
-
+	
+	
 	if(LCrossDown > 10 && LCrossDown < 50 && RCrossDown > 10 && RCrossDown < 50)
 		RLCircleFlag = 1;
 	if(RLCircleFlag == 1)
@@ -2272,7 +2344,7 @@ void CircleFind(int effect, uint8(*picture)[160])
 				RCirclePos = ReturnBigger(i-1,effect+1);
 				break;
 			}
-
+	
 		}
 		if(LCircleCount > 5)       // 右侧
 			RCircleFlag = 1;
@@ -2300,13 +2372,13 @@ void CircleFind(int effect, uint8(*picture)[160])
 			RCircleFlag = 2;
 	}
 
-
+	
 	if(LCircleFlag == 2)
 	{
 		for(i = RCirclePos - 1; i > effect + 1; i--)
 		{
 			BlackCircleLeft[i]  = lineinf[i].RightPos;
-			BlackCircleRight[i] = right - 2;
+			BlackCircleRight[i] = right - 2; 
 			IsBlackCircle = RCirclePos - 1 - effect;
 		}
 	}
@@ -2315,7 +2387,7 @@ void CircleFind(int effect, uint8(*picture)[160])
 		for(i = LCirclePos - 1; i > effect + 1; i--)
 		{
 			BlackCircleRight[i]  = lineinf[i].LeftPos;
-			BlackCircleLeft[i] = left + 2;
+			BlackCircleLeft[i] = left + 2; 
 			IsBlackCircle = LCirclePos - 1 - effect;
 		}
 	}
@@ -3118,7 +3190,7 @@ void show(int effect, uint8(*picture)[160])
 	{
 		picture[i][lineinf[i].MiddlePos] = 0;
 	}
-	//
+	//	
 	//	for(i = down; i > 0 ; i--)
 	//	{
 	//		picture[i][Ldem[i]] = 255;
@@ -3210,10 +3282,10 @@ void RoadInit(uint8(*picture)[160])
 		TrueLeft[i] = lineinf[i].LeftPos;
 	}
 	/**********起跑线******************************/
-//	if (IsZebarLine == 0)
-//		IsZebarLine = ZebarLine(EFFECT, picture);
-//	if (IsZebarLine != 0)
-//		ZebarDistance = ZebarLineDistance2(EFFECT, picture);
+	if (IsZebarLine == 0)
+		IsZebarLine = ZebarLine(EFFECT, picture);
+	if (IsZebarLine != 0)
+		ZebarDistance = ZebarLineDistance2(EFFECT, picture);
 	/*************坡道**************************/
 	IsRamp = RampFind(EFFECT, picture);
 	if (StructRamp == 0 && IsRamp == 1 && RampLimit == 0) //识别坡道
@@ -3227,7 +3299,7 @@ void RoadInit(uint8(*picture)[160])
 	}
 	if (StructRamp == 3)  								//清标志位
 		StructRamp = 0;
-	if (fabs((lineinf[EFFECT + 5].LeftPos + lineinf[EFFECT + 5].RightPos) / 2 - 80) > 15 &&  //以防标志位没清，强制清标志位
+	if (fabs((lineinf[EFFECT + 5].LeftPos + lineinf[EFFECT + 5].RightPos) / 2 - 80) > 15 &&  //以防标志位没清，强制清标志位 
 		fabs((lineinf[EFFECT + 10].LeftPos + lineinf[EFFECT + 10].RightPos) / 2 - 80) > 15)
 		StructRamp = 0;
 	/**********障碍********************************/
@@ -3258,7 +3330,7 @@ void RoadInit(uint8(*picture)[160])
 	if (IsZebarLine == 0 && StrucIsObstacle == 0)
 	{
 		CrossLineNormal5(EFFECT, picture);
-		//if(HalfFlag == 0)
+		//if(HalfFlag == 0)	
 			CircleFind(EFFECT, picture);
 		StructCircleDealStart(EFFECT, picture);
 	}
@@ -3289,21 +3361,18 @@ void RoadInit(uint8(*picture)[160])
 		GiveMiddle(EFFECT, picture);
 	/****小s处理**********************************/
 		Cross_S_Find2(EFFECT, picture);
-//		if (IsSLine)
-//		{
-//			Cross_S_Line3(EFFECT, picture);
-//			diff_cancel = 1;
-//		}
-//		else
-//			diff_cancel = 0;
+		if (IsSLine)
+		{
+			Cross_S_Line5(EFFECT, picture);
+			diff_cancel = 1;
+		}
+		else
+			diff_cancel = 0;
 
-	/*显示中线 边界*/
-	//show(EFFECT, picture);
-
-	//=========加减速=================================================//
+	//=========加减速=================================================// 
 			/*长直道提速*/
 			if (StructRamp == 0)
-				IsStraightLine = StraightLineFind(EFFECT, picture, 5);
+				IsStraightLine = StraightLineFind(EFFECT, picture, 4);
 
 			/*基础小直道提速*/
 			SpeedTend = ReturnTendency(picture, EFFECT, 3, 15, down);
@@ -3337,8 +3406,8 @@ void RoadInit(uint8(*picture)[160])
 					left_set = 78;
 					break;
 				case SLINESPEED:
-					right_set = 67;
-					left_set = 67;
+					right_set = 71;
+					left_set = 71;
 					break;
 				case NORMALSPEED:
 					right_set = 60;
@@ -3352,17 +3421,17 @@ void RoadInit(uint8(*picture)[160])
 					right_set = 60;
 					left_set = 60;
 					break;
-
+					
 			}
-
+	
 	/*===================================================*/
-	//=========加减速=================================================//
+	//=========加减速=================================================// 	
 
 	/*蜂鸣器*/
-//	if (StructCircle)
-//		BuzzerOn();
-//	else
-//		BuzzerOff();
+	if (IsSLine)
+		BuzzerOn();
+	else
+		BuzzerOff();
 }
 
 /*
